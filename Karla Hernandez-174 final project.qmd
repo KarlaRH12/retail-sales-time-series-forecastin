@@ -1,0 +1,1260 @@
+---
+title: "Retail Rhythms: Forecasting U.S. Retail Trade and Food Services Sales"
+author: "Karla Hernandez" 
+date: "2026-06-05"
+format: pdf
+editor: visual
+---
+
+## Abstract
+
+This project analyzes and forecasts monthly United States retail sales using time series modeling techniques. The primary research questions were: “What do historical retail sales patterns reveal about future consumer spending trends in the United States?” and “Can statistical time series models uncover the rhythm and seasonality behind U.S. retail sales?” The dataset was obtained from the Federal Reserve Economic Data (FRED) database and consisted of monthly retail sales observations from 2010 through 2019. The final 24 observations were reserved as a testing set, while the remaining observations were used for training. Exploratory techniques included decomposition plots, histograms, autocorrelation functions (ACFs), and partial autocorrelation functions (PACFs). A Box-Cox transformation was also considered to stabilize the variance of the series.
+
+First differencing and seasonal differencing were evaluated to achieve stationary before fitting multiple ARIMA models. Models were compared using Akaike Information Criterion corrected (AICc) values and residual diagnostic procedures, including residual ACF and PACF plots, Shapiro-Wilk tests, Box-Pierce tests, Ljung-Box tests, and McLeod-Li tests. The results demonstrated that an ARIMA(1,1,1) provided the best overall fit and forecasting performance for the retail sales data. Overall, this project highlights the effectiveness of ARIMA models for time series forecasting (because SARIMA was determined to not be needed) and emphasizes the importance of stationary, model comparison, and residual diagnostics when building reliable forecasting models.
+
+source: https://fred.stlouisfed.org/series/RSAFS
+
+## Introduction
+
+The project addresses the following research questions: “What do historical retail sales patterns reveal about future consumer spending trends in the United States?” and “Can statistical time series models uncover the rhythm and seasonality behind U.S. retail sales?” The dataset used in this project was obtained from the Federal Reserve Economic Data (FRED) database and tracks Retail Trade and Food Services sales in the United States (https://fred.stlouisfed.org/series/RSAFS). This data is important because retail sales are closely connected to consumer spending, which plays a major role in the U.S. economy. Changes in retail sales can demonstrate shifts in inflation, economic growth, and consumer confidence. This can also help businesses and policymakers better understand economic conditions and trends.
+
+The data for this project was obtained from Federal Reserve Economic Data (FRED) Retail Trade and Food Services sales Dataset, and the analysis was completed in R using RStudio. The main goal of the project was to forecast monthly U.S. retail sales using time series modeling techniques. To complete the analysis, methods such as decomposition plots, Box-Cox analysis, differencing, ACF and PACF plots, ARIMA modeling, and residual diagnostic testing were used. Several possible ARIMA models were compared using AICc values and residual diagnostic tests. Based on model fit, parameter estimates, and diagnostic performance, ARIMA(1,1,1) was selected as the final forecasting model as it gave the best results.
+
+## Modeling and Forecasting
+
+### Training/Testing sets
+
+The first step of modeling is to divide our data into a training and testing set.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+sales <- read.csv("RSAFS.csv")
+sales_price <- sales$RSAFS
+sales_price <- sales_price[217:336]
+n <- length(sales_price)
+sales_train <- sales_price[1:(n-24)]
+sales_test <- sales_price[(n-23):n]
+```
+
+The data was split so that out of the 120 data points, 24 of them were used for testing and the remainder for training. This way, it was about an 80/20 split of the data. The training set was used to estimate model parameters and identify patterns in the series, while the testing set was used to evaluate how accurate the forecasting model was. Furthermore, the data used was from the years 2010 to 2019. Modeling recent data would not have provided enough observations, and increasing the length of the data set would have changed the structure of my model.
+
+### Plotting and Analyzing Time Series
+
+The next step in modeling is to take a look at the training data
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+plot.ts(sales_train,
+        main = "Training Set of Monthly U.S. Retail Trade and Food Services Sales",
+        xlab = "Time",
+        ylab = "Sales")
+fit <- lm(sales_train ~ as.numeric(1:length(sales_train)))
+abline(fit, col="pink")
+abline(h=mean(sales_train), col="lightblue")
+hist(sales_train,
+     main = "Training Set Distribution of Monthly U.S. Retail Trade and Food Services",
+     xlab = "Retail Trade and Food Services sales",
+     ylab = "Frequency",
+     col = "pink",
+     breaks = 10)
+acf(sales_train,
+    main = "ACF of Monthly U.S. Retail Trade and Food Services sales")
+```
+
+The training data demonstrates an upward trend when the training set was plotted. It also does not show a seasonal component, which is further reflected in the ACF graph. Here, the ACF graph does not show any patterns, rather, it only shows decreasing lags. This shows that there is no seasonal component in our data, hence $D=0$. Additionally, there do not appear to be any major spikes, sudden drops, or other sharp changes in behavior throughout the training period. Hence, this series follows a relatively smooth upward pattern with some changes over time. It should also be noted that the histogram is roughly a bell shaped distribution, and there is no strong indication of skewness or outliers. While the distribution appears to be symmetric, the histogram alone does not tell us if there is a trend, seasonality, or stationarity, as histograms ignore the time ordering of observations.
+
+### Transformations
+
+First Box-Cox transformation was used to stabilize variance.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+library(MASS)
+
+bcTransform <- boxcox(sales_train ~ as.numeric(1:length(sales_train)))
+
+lambda <- bcTransform$x[
+  which(bcTransform$y == max(bcTransform$y))
+]
+
+lambda
+```
+
+However, it should be noted that the Box-Cox procedure gave a value of $\lambda = 2$. However, visually comparing of the transformed and untransformed series showed little improvement, so the original data was kept and used for the remainder of this project.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+sales_trans <- (sales_train^lambda - 1)/lambda
+plot.ts(sales_trans,
+        main = "Plot of Box-Cox Transformed Monthly U.S. Retail Trade and Food Services Sales")
+hist(sales_trans,
+     main = "Histogram of Box-Cox Transformed Retail Trade and Food Services Sales",
+     xlab = "Retail Trade and Food Services Sales",
+     ylab = "Frequency",
+     col = "pink")
+```
+
+The "Plot of Box-Cox Transformed Monthly U.S. Retail Sales" demonstrates how very little has changed with the Box-Cox transformation compared to the data that was not transformed. The histogram solidified the idea that a Box-Cox transform is not needed as it did not dramatically improve the shape of the histogram to become more bell like. Hence, for the remainder of the analysis, the original data will be used.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+sales.ts <- ts(sales_trans, frequency = 12)
+sales.decomp <- decompose(sales.ts)
+plot(sales.decomp)
+mtext("Decomposition with Box-Cox",
+      side = 3,
+      line = 1,
+      cex = 1.5)
+
+sales.ts2 <- ts(sales_train, frequency = 12)
+sales.decomp2 <- decompose(sales.ts2)
+plot(sales.decomp2)
+mtext("Decomposition of Original Data",
+      side = 3,
+      line = 1,
+      cex = 1.5)
+```
+
+This is the decomposition of the time series, which shows a seasonal component, upward trend, and a random component that looks similar at the beginning and end of the series. Furthermore, although the decomposition plot shows a seasonal component, decomposition methods will always estimate one. Since the ACF does not display significant spikes at seasonal lags such as 12 and 24, there is little evidence of a strong seasonal pattern in the data.
+
+Comparing the decomposition of the Box-Cox transformation to that of the original data, there was little change, indicating that Box-Cox transformation may not be necessary.
+
+Furthermore, since the variance appeared constant across time in the original series and the Box-Cox transformation did not meaningfully change the histogram shape or decomposition, no transformation was applied. Since it was determined that using Box-Cox transformation was unnecessary, the remainder of the project will be done with the original data.
+
+The next step in transforming the data to become stationary is to difference it. To decide what differencing was needed first differencing was plotted, seasonal differencing was plotted, and seasonal and first differencing was plotted.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+cat("Mean of training data:", mean(sales_train), "\n")
+cat("Variance of training data:", var(sales_train), "\n")
+
+sales.diff1 <- diff(sales_train, lag = 1)
+
+cat("Mean of first differenced data:", mean(sales.diff1), "\n")
+cat("Variance of first differenced data:", var(sales.diff1), "\n")
+plot.ts(sales.diff1,
+        main = "First Differenced Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff1), col = "lightblue")
+fit3 <- lm(sales.diff1 ~ as.numeric(1:length(sales.diff1)))
+abline(fit3, col = "pink")
+```
+
+First differencing substantially reduced the variance and produced a more stable mean compared to the original data, suggesting that much of the nonstationarity was removed.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+sales.diff12 <- diff(sales_train, lag = 12)
+cat("Mean of seasonally differenced data:", mean(sales.diff12), "\n")
+cat("Variance of seasonally differenced data:", var(sales.diff12), "\n")
+plot.ts(sales.diff12,
+        main = "Seasonally Differenced Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff12), col = "lightblue")
+fit4 <- lm(sales.diff12 ~ as.numeric(1:length(sales.diff12)))
+abline(fit4, col = "pink")
+```
+
+Seasonal differencing slightly reduced the variance compared to the original data and removed some of the seasonal pattern. However, the improvement was not as big as what was seen with first differencing.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+sales.diff12_1 <- diff(sales.diff12, lag = 1)
+cat("Mean of seasonally and first differenced data:", mean(sales.diff12_1), "\n")
+cat("Variance of seasonally and first differenced data:", var(sales.diff12_1), "\n")
+
+plot.ts(sales.diff12_1,
+        main = "Seasonal and First Differenced Box-Cox Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff12_1), col = "lightblue")
+fit5 <- lm(sales.diff12_1 ~ as.numeric(1:length(sales.diff12_1)))
+abline(fit5, col = "pink")
+
+```
+
+Differencing both seasonally and by the first lag increased the variance compared to using only first differencing. Since the additional differencing did not noticeably improve the stability of the series, this suggests that the data may have been over differenced. A higher variance after additional differencing is often a sign of over differencing because once the trend and dependence have already been removed, further differencing can add unnecessary noise to the series.
+
+To further discuss these ideas, the ACF models for the original data, first differencing, seasonal differencing, and both seasonal and first differencing were plotted.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+acf(sales_train,
+    main = "ACF of Monthly U.S. Retail Trade and Food Services Sales")
+
+acf(sales.diff1,
+    main = "ACF of First Differenced U.S. Retail Trade and Food Services Sales")
+
+acf(sales.diff12,
+    main = "ACF of Seasonally Differenced Retail Trade and Food Services Sales")
+
+acf(sales.diff12_1,
+    main = "ACF of Seasonal and First Differenced Retail Trade and Food Services Sales")
+```
+
+Comparing these to the original series, we can see that first differencing significantly stabilized the data, almost reducing it to white noise. In comparison, seasonal differencing alone made some improvement, but the ACF still showed a gradual decrease across the lags. Finally, the ACF of the seasonally and first differenced series produced several spikes outside the confidence bounds. Along with the increase in variance, this suggests that adding a seasonal difference over differenced the data so only first differencing should be used.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+hist(sales_train,
+     main = "Histogram of Monthly U.S. Retail Trade and Food Services Sales",
+     col = "pink",
+     xlab = "Sales")
+
+hist(sales.diff1,
+     breaks = 20,
+     col = "pink",
+     xlab = "First Differenced Retail Trade and Food Services Sales",
+     prob = TRUE,
+     main = "Histogram of First Differenced Retail Trade and Food Services Sales")
+
+m <- mean(sales.diff1)
+std <- sqrt(var(sales.diff1))
+curve(dnorm(x, m, std), add = TRUE)
+```
+
+The histogram of the first differenced series is roughly bell shaped, even though it has a slight right skew due to what looks to be one outlier. Overall, the distribution looks mostly stable after differencing. Along with the reduced variance, a more stable mean, and ACF that is close to white noise, this suggests that first differencing was enough to stabilize the data.
+
+Overall, the original series demonstrated a clear upward trend, indicating that it was not stationary. To remove this trend and stabilize the mean, first differencing at lag 1 was applied. After differencing, the series fluctuated at around a constant level with no obvious trends. This suggests that the differenced series was approximately stationary and therefore could be used for ARIMA modeling.
+
+### ACF and PACF
+
+Now we will take a look at what the ACF and PACF looks like of a model that was first differenced.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+acf(sales.diff1, main = "ACF First Differenced Retail Trade and Food Services Sales") 
+pacf(sales.diff1, main = "PACF First Differenced Retail Trade and Food Services Sales")
+```
+
+Both the ACF and PACF have all of their lags within the confidence bounds, which is what we would expect from a series that is close to white noise. This suggests that first differencing removed most of the structure in the data. The ACF cuts off after lag 0 (suggesting q=0), and the PACF similarly shows no significant spikes (suggesting p=0), consistent with ARIMA(0,1,0). Therefore, ARIMA(0,1,0) seems like a reasonable model to consider, but other models will also be tested to see if they provide a better fit. This is because it is standard to test $p \pm 1$ and $q \pm 1$ when looking at other possible models.
+
+### Fitting the Models
+
+Since all of the ACF and PACF lags fell within the confidence bounds, there was little evidence of an AR or MA component. Because of this, ARIMA(0,1,0) appeared to be the most reasonable model. However, ARIMA(1,1,0) and ARIMA(0,1,1) were also tested to make sure that a more complex model was not needed.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+library(MuMIn)
+
+model1 <- arima(sales_train,
+                order = c(0,1,0),
+                method = "ML")
+
+model2 <- arima(sales_train,
+                order = c(1,1,0),
+                method = "ML")
+
+model3 <- arima(sales_train,
+                order = c(0,1,1),
+                method = "ML")
+
+model4 <- arima(sales_train,
+                order = c(1,1,1),
+                method = "ML")
+
+model5 <- arima(sales_train,
+                order = c(0,2,0),
+                method = "ML")
+
+cat("Model 1: ARIMA(0,1,0)\n")
+model1
+
+cat("\n-----------------------------------\n")
+
+cat("Model 2: ARIMA(1,1,0)\n")
+model2
+
+cat("\n-----------------------------------\n")
+
+cat("Model 3: ARIMA(0,1,1)\n")
+model3
+
+cat("\n-----------------------------------\n")
+
+cat("Model 4: ARIMA(1,1,1)\n")
+model4
+
+cat("\n-----------------------------------\n")
+
+cat("AICc Comparison:\n")
+
+cat("Model 5: ARIMA(0,2,0)\n")
+model5
+
+cat("\n-----------------------------------\n")
+
+cat("AICc Comparison:\n")
+cat("ARIMA(0,1,0):", AICc(model1), "\n")
+cat("ARIMA(1,1,0):", AICc(model2), "\n")
+cat("ARIMA(0,1,1):", AICc(model3), "\n")
+cat("ARIMA(1,1,1):", AICc(model4), "\n")
+cat("ARIMA(0,2,0):", AICc(model5), "\n")
+```
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+# Diagnostic checks for model1 (ARIMA(0,1,0))
+
+res1 <- residuals(model1)
+
+plot.ts(res1,
+        main = "Residuals for ARIMA(0,1,0)",
+        ylab = "Residuals")
+
+abline(h = mean(res1), col = "lightblue")
+
+fit_res1 <- lm(res1 ~ as.numeric(1:length(res1)))
+abline(fit_res1, col = "pink")
+
+cat("Mean of Residuals for Model 1:", mean(res1), "\n")
+
+hist(res1,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(0,1,0)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res1), col = "black", lwd = 2)
+
+qqnorm(res1,
+       main = "Normal Q-Q Plot for ARIMA(0,1,0)")
+
+qqline(res1, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res1,
+    main = "ACF of Residuals for ARIMA(0,1,0)")
+
+pacf(res1,
+     main = "PACF of Residuals for ARIMA(0,1,0)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res1))
+
+print(Box.test(res1,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 0))
+
+print(Box.test(res1,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+print(Box.test((res1)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res1,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+```
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+# Diagnostic checks for model2 (ARIMA(1,1,0))
+
+res2 <- residuals(model2)
+
+plot.ts(res2,
+        main = "Residuals for ARIMA(1,1,0)",
+        ylab = "Residuals")
+
+abline(h = mean(res2), col = "lightblue")
+
+fit_res2 <- lm(res2 ~ as.numeric(1:length(res2)))
+abline(fit_res2, col = "pink")
+
+cat("Mean of Residuals for Model 2:", mean(res2), "\n")
+
+hist(res2,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(1,1,0)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res2), col = "black", lwd = 2)
+
+qqnorm(res2,
+       main = "Normal Q-Q Plot for ARIMA(1,1,0)")
+
+qqline(res2, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res2,
+    main = "ACF of Residuals for ARIMA(1,1,0)")
+
+pacf(res2,
+     main = "PACF of Residuals for ARIMA(1,1,0)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res2))
+
+print(Box.test(res2,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 1))
+
+print(Box.test(res2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 1))
+
+print(Box.test((res2)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res2,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+```
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+# Diagnostic checks for model3 (ARIMA(0,1,1))
+
+res3 <- residuals(model3)
+
+plot.ts(res3,
+        main = "Residuals for ARIMA(0,1,1)",
+        ylab = "Residuals")
+
+abline(h = mean(res3), col = "lightblue")
+
+fit_res3 <- lm(res3 ~ as.numeric(1:length(res3)))
+abline(fit_res3, col = "pink")
+
+cat("Mean of Residuals for Model 3:", mean(res3), "\n")
+
+hist(res3,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(0,1,1)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res3), col = "black", lwd = 2)
+
+qqnorm(res3,
+       main = "Normal Q-Q Plot for ARIMA(0,1,1)")
+
+qqline(res3, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res3,
+    main = "ACF of Residuals for ARIMA(0,1,1)")
+
+pacf(res3,
+     main = "PACF of Residuals for ARIMA(0,1,1)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res3))
+
+print(Box.test(res3,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 1))
+
+print(Box.test(res3,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 1))
+
+print(Box.test((res3)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res3,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+```
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+# Diagnostic checks for model4 (ARIMA(1,1,1))
+
+res4 <- residuals(model4)
+
+plot.ts(res4,
+        main = "Residuals for ARIMA(1,1,1)",
+        ylab = "Residuals")
+
+abline(h = mean(res4), col = "lightblue")
+
+fit_res4 <- lm(res4 ~ as.numeric(1:length(res4)))
+abline(fit_res4, col = "pink")
+
+cat("Mean of Residuals for Model 4:", mean(res4), "\n")
+
+hist(res4,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(1,1,1)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res4), col = "black", lwd = 2)
+
+qqnorm(res4,
+       main = "Normal Q-Q Plot for ARIMA(1,1,1)")
+
+qqline(res4, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res4,
+    main = "ACF of Residuals for ARIMA(1,1,1)")
+
+pacf(res4,
+     main = "PACF of Residuals for ARIMA(1,1,1)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res4))
+
+print(Box.test(res4,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 2))
+
+print(Box.test(res4,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 2))
+
+print(Box.test((res4)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res4,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+```
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+# Diagnostic checks for model5 (ARIMA(0,2,0))
+
+res5 <- residuals(model5)
+
+plot.ts(res5,
+        main = "Residuals for ARIMA(0,2,0)",
+        ylab = "Residuals")
+
+abline(h = mean(res5), col = "lightblue")
+
+fit_res5 <- lm(res5 ~ as.numeric(1:length(res5)))
+abline(fit_res5, col = "pink")
+
+cat("Mean of Residuals for Model 5:", mean(res5), "\n")
+
+hist(res5,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(0,2,0)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res5), col = "black", lwd = 2)
+
+qqnorm(res5,
+       main = "Normal Q-Q Plot for ARIMA(0,2,0)")
+
+qqline(res5, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res5,
+    main = "ACF of Residuals for ARIMA(0,2,0)")
+
+pacf(res5,
+     main = "PACF of Residuals for ARIMA(0,2,0)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res5))
+
+print(Box.test(res5,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 0))
+
+print(Box.test(res5,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+print(Box.test((res5)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res5,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+```
+
+Therefore, even though the ACF and PACF of the differenced series suggested that ARIMA(0,1,0) could be an appropriate model because all autocorrelations fell within the confidence bounds, it was still appropriate to examine nearby models including ARIMA(1,1,0), ARIMA(0,1,1), ARIMA(1,1,1), and ARIMA(0,2,0).
+
+However, ARIMA(0,2,0) failed the diagnostic checks because the Box-Pierce and Ljung-Box tests produced p-values less than 0.05, indicating remaining autocorrelation in the residuals. Therefore, this is not a possible model for forecasting and it was removed from further consideration.
+
+The remaining four models passed the diagnostic checks, which included tests for residual autocorrelation, normality, and changing variance. Specifically, the Ljung-Box test produced a p-value greater than 0.05, indicating no remaining autocorrelation. The McLeod-Li test similarly failed to reject the null hypothesis with a p-value greater than 0.05, suggesting no significant remaining ARCH-type effects. The Shapiro-Wilk test indicated that the residuals were approximately normally distributed. The Box-Pierce test also failed to reject the null hypothesis of no remaining autocorrelation in the residuals.
+
+Additionally, the residual histograms for all four models that passed the diagnostic tests appeared approximately bell shaped, supporting the assumption of normality. The residual ACF and PACF plots were consistent with white noise, with the exception of ARIMA(1,1,0), which showed a noticeable spike at lag 1 in the residual ACF.
+
+Although ARIMA(0,1,0) was the simplest candidate and was suggested by the ACF/PACF analysis, ARIMA(1,1,1) had the lowest AICc value of 1764.059 among all the models that passed diagnostic checks. Therefore, the model selected by AICc was not the same as the model first suggested by the ACF/PACF analysis.
+
+It should be noted that the ARIMA(1,1,1) model produced parameter estimates ar1 = 0.9999 and ma1 = -0.9913, which are close in magnitude and opposite in sign (about -1 and 1) and may suggest near cancellation of parameters. However, several pieces of evidence support keeping the model. First, the model was kept because it had the lowest AICc value (1764.059) among all models tested. Second, it passed all residual diagnostic checks and showed no evidence of a remaining autocorrelation or changing variance. Finally, it was the only model that successfully captured all 24 test observations within its forecast confidence intervals. Therefore, despite the near cancellation, ARIMA(1,1,1) demonstrated the strongest overall forecasting performance and was used as the final model.
+
+In algebraic form the model is $\nabla X_t = 0.9999\nabla X_{t-1} + Z_t - 0.9913Z_{t-1}$ where $\nabla X_t = X_t - X_{t-1}$, or $(1-0.9999B)(1-B)X_t=(1-0.9913B)Z_t.$
+
+### Forcasting
+
+The final step of the analysis is forecasting. This allows us to test how well the model performs on data that was not used during model fitting. By comparing the forecasts to the actual observations in the testing set, we can evaluate the model's ability to predict future retail trade and food services sales and determine whether it would be useful for real world decision making.
+
+```{r, fig.width=10, fig.height=6, echo=FALSE}
+#ARIMA(1,1,1) model
+library(forecast)
+
+sales_train_ts <- ts(sales_train, start = c(2010, 1), frequency = 12)
+sales_test_ts  <- ts(sales_test,  start = c(2018, 1), frequency = 12)
+
+final_model <- arima(
+  sales_train_ts,
+  order = c(1,1,1),
+  method = "ML"
+)
+
+sales_forecast <- forecast(final_model, h = 24)
+
+plot(sales_forecast,
+     main = "Forecast of Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     fcol = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+
+plot(sales_forecast,
+     main = "Forecast vs Actual Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     col = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+lines(sales_test_ts, col = "purple", lwd = 2)
+
+legend("topleft",
+       legend = c("Training Data", "Forecast", "Actual Test Data"),
+       col = c("black", "blue", "purple"),
+       lty = c(1, 1, 1),
+       lwd = c(2, 2, 2))
+```
+
+Overall, the model we chose performed well in our data set as the forecast was able to capture the trend in retail trade and food services sales in the testing period. While it did not perfectly predict the model, the data stayed within the confidence intervals for almost the entire period it was tested. This means that the model gave a reasonable forecast and was successfully able to capture the pattern for retail trade and food services sales. Furthermore, with growing confidence intervals, this shows that there is more uncertainty as data continues to pass with time.
+
+## Conclusion
+
+The goal of this project was to answer two questions: What do historical retail trade and food services sales patterns reveal about future consumer spending trends in the United States, and can statistical time series models uncover the rhythm and seasonality behind U.S. retail trade and food services sales? Through time series analysis and forecasting, both questions were answered.
+
+The data showed a clear upward trend in retail trade and food services sales over time, suggesting that consumer spending generally increased throughout the period studied. This suggests that historical retail trade and food services sales data can give useful information about future consumer spending trends. Additionally, the decomposition, ACF, and PACF analyses revealed patterns in the data, showing that a time series can identify and model the rhythm and seasonality present in retail sales. After testing several transformations and differencing methods, first differencing was sufficient to get stationarity and prepare the data for modeling.
+
+Although the ACF and PACF plots suggested that a simple ARIMA(0,1,0) (random walk) model may have been appropriate, model comparison and diagnostic testing gave different results. After testing five possible models, ARIMA(1,1,1) produced the lowest AICc value (1764.059) and was the only model whose forecast contained all 24 test observations. Therefore, this suggests that retail sales data contains useful information for forecasting future consumer spending patterns.
+
+Hence, for this project an ARIMA(1,1,1) model was determined to be the most accurate. In algebraic form it is $(1-0.9999B)(1-B)Y_t=(1-0.9913B)\epsilon_t.$
+
+Additionally, it should be noted that Professor Raya Feldman, and TA Minxing assisted me with this project and helped me interpret results and make the best decision for my forecast.
+
+## References
+
+- Federal Reserve Economic Data (FRED). Retail Sales: Retail Trade and Food Services Sales Total (RSAFS). Federal Reserve Bank of St. Louis. Retrieved from FRED Economic Data
+
+- Time Series Analysis with R Examples, by R. H. Shumway and D. S. Stoffer, Springer. The textbook is available for free in electronic form UCSB Library. Additional material is available at Dr. David Stoffer's website https://github.com/nickpoison/tsa5/blob/main/textRcode.md
+
+- R
+
+- R studio
+
+## Appendix
+
+```{r, results='hide', fig.show='hide'}
+# first section
+sales <- read.csv("RSAFS.csv") 
+
+sales_price <- sales$RSAFS
+
+# Checks if there is any missing data
+sum(is.na(sales_price)) #showed that there was no missing data 
+
+# Restrict to 2010-2019 data because the jumps from the recession and covid, furthermore extremely large data sets cause shapiro-wilk test to be more sensitive to small changes in data. 
+# Monthly data starts in 1992, so we will go from 2010 Jan to Dec 2019
+
+sales_price <- sales_price[217:336]
+
+n <- length(sales_price)
+
+# Reserve last 24 observations for test set (2 years of data) (just over 20% for testing data)
+
+sales_train <- sales_price[1:(n-24)]
+sales_test <- sales_price[(n-23):n]
+
+#second section 
+plot.ts(sales_train,
+        main = "Training Set of Monthly U.S. Retail Trade and Food Services Sales",
+        xlab = "Time",
+        ylab = "Sales") #plots the training data 
+fit <- lm(sales_train ~ as.numeric(1:length(sales_train)))
+abline(fit, col="pink")
+abline(h=mean(sales_train), col="lightblue")
+hist(sales_train,
+     main = "Training Set Distribution of Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Sales",
+     ylab = "Frequency",
+     col = "pink",
+     breaks = 10) #histogram of the training data
+acf(sales_train,
+    main = "ACF of Monthly U.S. Retail Trade and Food Services Sales") 
+
+#third section 
+
+library(MASS)
+
+bcTransform <- boxcox(sales_train ~ as.numeric(1:length(sales_train))) #box-cox transfomation 
+
+lambda <- bcTransform$x[
+  which(bcTransform$y == max(bcTransform$y))
+]
+
+lambda #about 2 so we try box-cox tranformation to see if it makes a difference 
+
+sales_trans <- (sales_train^lambda - 1)/lambda #box-cox transformation 
+plot.ts(sales_trans,
+        main = "Plot of Box-Cox Transformed Monthly U.S. Retail Trade and Food Services Sales")
+hist(sales_trans,
+     main = "Histogram of Box-Cox Transformed Retail Trade and Food Services Sales",
+     xlab = "Sales",
+     ylab = "Frequency",
+     col = "pink") #testing the transformation showed that there was not a significant difference in the distribution of the data 
+
+
+sales.ts <- ts(sales_trans, frequency = 12)
+sales.decomp <- decompose(sales.ts)
+plot(sales.decomp)
+mtext("Decomposition with Box-Cox",
+      side = 3,
+      line = 1,
+      cex = 1.5) #decomposition with box cox 
+#note: decomposition will force a seasonality component even if there is none 
+
+sales.ts2 <- ts(sales_train, frequency = 12)
+sales.decomp2 <- decompose(sales.ts2)
+plot(sales.decomp2)
+mtext("Decomposition of Original Data",
+      side = 3,
+      line = 1,
+      cex = 1.5) #shows that the decompositions baiscally looked the same 
+#proceeded with origional data not box-cox transformation 
+
+
+cat("Mean of training data:", mean(sales_train), "\n")
+cat("Variance of training data:", var(sales_train), "\n")
+
+sales.diff1 <- diff(sales_train, lag = 1)
+
+cat("Mean of first differenced data:", mean(sales.diff1), "\n")
+cat("Variance of first differenced data:", var(sales.diff1), "\n") #gave the lowest variance 
+#indication that d=1
+
+plot.ts(sales.diff1,
+        main = "First Differenced Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff1), col = "lightblue")
+fit3 <- lm(sales.diff1 ~ as.numeric(1:length(sales.diff1)))
+abline(fit3, col = "pink")
+
+sales.diff12 <- diff(sales_train, lag = 12)
+cat("Mean of seasonally differenced data:", mean(sales.diff12), "\n")
+cat("Variance of seasonally differenced data:", var(sales.diff12), "\n")
+#gave a smaller variance that origional 
+plot.ts(sales.diff12,
+        main = "Seasonally Differenced Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff12), col = "lightblue")
+fit4 <- lm(sales.diff12 ~ as.numeric(1:length(sales.diff12)))
+abline(fit4, col = "pink")
+
+sales.diff12_1 <- diff(sales.diff12, lag = 1)
+cat("Mean of seasonally and first differenced data:", mean(sales.diff12_1), "\n")
+cat("Variance of seasonally and first differenced data:", var(sales.diff12_1), "\n")
+#gave a higher variance than when it was just first differenced signifying over differencing 
+plot.ts(sales.diff12_1,
+        main = "Seasonal and First Differenced Box-Cox Retail Trade and Food Services Sales")
+abline(h = mean(sales.diff12_1), col = "lightblue")
+fit5 <- lm(sales.diff12_1 ~ as.numeric(1:length(sales.diff12_1)))
+abline(fit5, col = "pink")
+#created to ensure that previous assuptions were correct
+
+acf(sales_train,
+    main = "ACF of Monthly U.S. Retail Trade and Food Services Sales")
+
+acf(sales.diff1,
+    main = "ACF of First Differenced U.S. Retail Trade and Food Services Sales") #all lags were within the confidence interval so this one looked the cleanest 
+
+acf(sales.diff12,
+    main = "ACF of Seasonally Differenced Retail Trade and Food Services Sales") 
+
+acf(sales.diff12_1,
+    main = "ACF of Seasonal and First Differenced Retail Trade and Food Services Sales")
+
+#compared histogram or the origional data with histogram of the data that was differenced once 
+hist(sales_train,
+     main = "Histogram of Monthly U.S. Retail Trade and Food Services Sales",
+     col = "pink",
+     xlab = "Sales")
+
+hist(sales.diff1,
+     breaks = 20,
+     col = "pink",
+     xlab = "First Differenced Retail Trade and Food Services Sales",
+     prob = TRUE,
+     main = "Histogram of  First Differenced Retail Trade and Food Services Sales") #this one looked slightly more bell shaped with one outlier 
+
+m <- mean(sales.diff1)
+std <- sqrt(var(sales.diff1))
+curve(dnorm(x, m, std), add = TRUE)
+
+#fourth section
+
+#checked the acf and pacf to try to find AR and MA components 
+acf(sales.diff1, main = "ACF First Differenced Retail Trade and Food Services Sales") 
+pacf(sales.diff1, main = "PACF First Differenced Retail Trade and Food Services Sales")
+
+#fifth section 
+
+#checks multiple ARIMA models to determine which is the best one for prediction 
+#note: I tried downloading qpcR but it is not compatible with my computer and google said this package would do the same thing 
+library(MuMIn)
+
+model1 <- arima(sales_train,
+                order = c(0,1,0),
+                method = "ML")
+
+model2 <- arima(sales_train,
+                order = c(1,1,0),
+                method = "ML")
+
+model3 <- arima(sales_train,
+                order = c(0,1,1),
+                method = "ML")
+
+model4 <- arima(sales_train,
+                order = c(1,1,1),
+                method = "ML")
+
+model5 <- arima(sales_train,
+                order = c(0,2,0),
+                method = "ML")
+
+cat("Model 1: ARIMA(0,1,0)\n")
+model1
+
+cat("\n-----------------------------------\n")
+
+cat("Model 2: ARIMA(1,1,0)\n")
+model2
+
+cat("\n-----------------------------------\n")
+
+cat("Model 3: ARIMA(0,1,1)\n")
+model3
+
+cat("\n-----------------------------------\n")
+
+cat("Model 4: ARIMA(1,1,1)\n")
+model4
+
+cat("\n-----------------------------------\n")
+
+cat("AICc Comparison:\n")
+
+cat("Model 5: ARIMA(0,2,0)\n")
+model5
+
+cat("\n-----------------------------------\n")
+
+cat("AICc Comparison:\n")
+cat("ARIMA(0,1,0):", AICc(model1), "\n")
+cat("ARIMA(1,1,0):", AICc(model2), "\n")
+cat("ARIMA(0,1,1):", AICc(model3), "\n")
+cat("ARIMA(1,1,1):", AICc(model4), "\n") #has the lowest AICc value 
+cat("ARIMA(0,2,0):", AICc(model5), "\n")
+#note that all models passed all diagnostic checks 
+
+# Diagnostic checks for model1 (ARIMA(0,1,0))
+
+res1 <- residuals(model1)
+
+plot.ts(res1,
+        main = "Residuals for ARIMA(0,1,0)",
+        ylab = "Residuals")
+
+abline(h = mean(res1), col = "lightblue")
+
+fit_res1 <- lm(res1 ~ as.numeric(1:length(res1)))
+abline(fit_res1, col = "pink")
+
+cat("Mean of Residuals for Model 1:", mean(res1), "\n")
+
+hist(res1,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(0,1,0)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res1), col = "black", lwd = 2)
+
+qqnorm(res1,
+       main = "Normal Q-Q Plot for ARIMA(0,1,0)")
+
+qqline(res1, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res1,
+    main = "ACF of Residuals for ARIMA(0,1,0)")
+
+pacf(res1,
+     main = "PACF of Residuals for ARIMA(0,1,0)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res1))
+
+print(Box.test(res1,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 0))
+
+print(Box.test(res1,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+print(Box.test((res1)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res1,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+
+# Diagnostic checks for model2 (ARIMA(1,1,0))
+
+res2 <- residuals(model2)
+
+plot.ts(res2,
+        main = "Residuals for ARIMA(1,1,0)",
+        ylab = "Residuals")
+
+abline(h = mean(res2), col = "lightblue")
+
+fit_res2 <- lm(res2 ~ as.numeric(1:length(res2)))
+abline(fit_res2, col = "pink")
+
+cat("Mean of Residuals for Model 2:", mean(res2), "\n")
+
+hist(res2,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(1,1,0)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res2), col = "black", lwd = 2)
+
+qqnorm(res2,
+       main = "Normal Q-Q Plot for ARIMA(1,1,0)")
+
+qqline(res2, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res2,
+    main = "ACF of Residuals for ARIMA(1,1,0)")
+
+pacf(res2,
+     main = "PACF of Residuals for ARIMA(1,1,0)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res2))
+
+print(Box.test(res2,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 1))
+
+print(Box.test(res2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 1))
+
+print(Box.test((res2)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res2,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+
+# Diagnostic checks for model3 (ARIMA(0,1,1))
+
+res3 <- residuals(model3)
+
+plot.ts(res3,
+        main = "Residuals for ARIMA(0,1,1)",
+        ylab = "Residuals")
+
+abline(h = mean(res3), col = "lightblue")
+
+fit_res3 <- lm(res3 ~ as.numeric(1:length(res3)))
+abline(fit_res3, col = "pink")
+
+cat("Mean of Residuals for Model 3:", mean(res3), "\n")
+
+hist(res3,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(0,1,1)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res3), col = "black", lwd = 2)
+
+qqnorm(res3,
+       main = "Normal Q-Q Plot for ARIMA(0,1,1)")
+
+qqline(res3, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res3,
+    main = "ACF of Residuals for ARIMA(0,1,1)")
+
+pacf(res3,
+     main = "PACF of Residuals for ARIMA(0,1,1)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res3))
+
+print(Box.test(res3,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 1))
+
+print(Box.test(res3,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 1))
+
+print(Box.test((res3)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res3,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+
+# Diagnostic checks for model4 (ARIMA(1,1,1))
+
+res4 <- residuals(model4)
+
+plot.ts(res4,
+        main = "Residuals for ARIMA(1,1,1)",
+        ylab = "Residuals")
+
+abline(h = mean(res4), col = "lightblue")
+
+fit_res4 <- lm(res4 ~ as.numeric(1:length(res4)))
+abline(fit_res4, col = "pink")
+
+cat("Mean of Residuals for Model 4:", mean(res4), "\n")
+
+hist(res4,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(1,1,1)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res4), col = "black", lwd = 2)
+
+qqnorm(res4,
+       main = "Normal Q-Q Plot for ARIMA(1,1,1)")
+
+qqline(res4, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res4,
+    main = "ACF of Residuals for ARIMA(1,1,1)")
+
+pacf(res4,
+     main = "PACF of Residuals for ARIMA(1,1,1)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res4))
+
+print(Box.test(res4,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 2))
+
+print(Box.test(res4,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 2))
+
+print(Box.test((res4)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res4,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+
+# Diagnostic checks for model5 (ARIMA(0,2,0))
+
+res5 <- residuals(model5)
+
+plot.ts(res5,
+        main = "Residuals for ARIMA(1,1,1)",
+        ylab = "Residuals")
+
+abline(h = mean(res5), col = "lightblue")
+
+fit_res5 <- lm(res5 ~ as.numeric(1:length(res5)))
+abline(fit_res5, col = "pink")
+
+cat("Mean of Residuals for Model 5:", mean(res5), "\n")
+
+hist(res5,
+     probability = TRUE,
+     main = "Histogram of Residuals for ARIMA(1,1,1)",
+     xlab = "Residuals",
+     col = "lightblue")
+
+lines(density(res5), col = "black", lwd = 2)
+
+qqnorm(res5,
+       main = "Normal Q-Q Plot for ARIMA(1,1,1)")
+
+qqline(res5, col = "lightblue", lwd = 2)
+
+par(mfrow = c(1,2))
+
+acf(res5,
+    main = "ACF of Residuals for ARIMA(1,1,1)")
+
+pacf(res5,
+     main = "PACF of Residuals for ARIMA(1,1,1)")
+
+par(mfrow = c(1,1))
+
+print(shapiro.test(res5))
+
+print(Box.test(res5,
+               lag = 12,
+               type = "Box-Pierce",
+               fitdf = 0))
+
+print(Box.test(res5,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+print(Box.test((res5)^2,
+               lag = 12,
+               type = "Ljung-Box",
+               fitdf = 0))
+
+ar(res5,
+   aic = TRUE,
+   order.max = NULL,
+   method = "yule-walker")
+
+#sixth section 
+
+#ARIMA(1,1,1) model was used to do forecasting 
+#Note that ARIMA(0,1,0) was also tested but did not get the majority of the testing component in the confidence interval 
+library(forecast) 
+
+sales_train_ts <- ts(sales_train, start = c(2010, 1), frequency = 12)
+sales_test_ts  <- ts(sales_test,  start = c(2018, 1), frequency = 12)
+
+final_model <- arima(
+  sales_train_ts,
+  order = c(1,1,1),
+  method = "ML"
+)
+
+secondary_model <- arima(
+  sales_train_ts,
+  order = c(0,1,0),
+  method = "ML"
+) #test what I originality thought just to confirm visually that it is not the best model
+
+sales_forecast <- forecast(final_model, h = 24)
+secondary_forecast <- forecast(secondary_model, h = 24)
+
+plot(sales_forecast,
+     main = "Forecast of Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     fcol = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+
+plot(sales_forecast,
+     main = "Forecast vs Actual Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     col = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+lines(sales_test_ts, col = "purple", lwd = 2)
+
+legend("topleft",
+       legend = c("Training Data", "Forecast", "Actual Test Data"),
+       col = c("black", "blue", "purple"),
+       lty = c(1, 1, 1),
+       lwd = c(2, 2, 2))
+
+
+plot(secondary_forecast,
+     main = "Forecast of Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     fcol = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+
+plot(secondary_forecast,
+     main = "Forecast vs Actual Monthly U.S. Retail Trade and Food Services Sales",
+     xlab = "Year",
+     ylab = "Sales",
+     col = "blue",
+     shadecols = c("mistyrose", "palevioletred"))
+
+lines(sales_train_ts, col = "black", lwd = 2)
+lines(sales_test_ts, col = "purple", lwd = 2)
+
+legend("topleft",
+       legend = c("Training Data", "Forecast", "Actual Test Data"),
+       col = c("black", "blue", "purple"),
+       lty = c(1, 1, 1),
+       lwd = c(2, 2, 2))
+
+```
